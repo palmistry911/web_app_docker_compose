@@ -1,0 +1,75 @@
+ Задаём имя проекта
+name: study-docker-compose-postgres
+# Указывает версию формата файла (вроде как устарело уже)
+version: '3.8'
+
+# Определяет службы, которые будут запущены в контейнерах
+services:
+  api:
+    # Указываем директорию ./src, в которой содержится Dockerfile для сборки образа
+    build: ./src
+    # Автоматически перезапускает контейнер, если он выходит из строя
+    restart: always
+    # Миграции, создаем Superuser и запускаем встроенный сервер Django
+    command: >
+      bash -c "
+      python manage.py makemigrations && 
+      python manage.py migrate --noinput && 
+      python manage.py shell < superuser.py &&
+      python manage.py runserver 0.0.0.0:8000"
+    # Пробрасываем 8000 порт контейнера на 8000 порт (127.0.0.1:8000)
+    ports:
+      - "127.0.0.1:8000:8000"
+    # Файл содержащий переменные окружения для контейнера
+    env_file:
+      - .env
+    # Дожидаемся запуска контейнера db
+    depends_on:
+      db:
+        # и проверки его состояния
+        condition: service_healthy
+    # Подключаем к сети my_backend
+    networks:
+      - my_backend
+
+  db:
+    # Берём образ БД PostgreSQL версии latest
+    image: postgres:latest
+    # Автоматически перезапускает контейнер, если он выходит из строя
+    restart: always
+    # Файл содержащий переменные окружения для контейнера
+    env_file:
+      - .env
+    # Используем значения переменных окружения из .env файла
+    environment:
+      - POSTGRES_USER=${SQL_USER}
+      - POSTGRES_PASSWORD=${SQL_PASSWORD}
+      - POSTGRES_DB=${SQL_DATABASE}
+    # Примонтируем том study_postgres_data к директории /var/lib/postgresql/data контейнера db
+    volumes:
+      - study_postgres_data:/var/lib/postgresql/data
+    # Проверка состояния контейнера
+    healthcheck:
+      # Запускаем внутри контейнера проверку его состояния
+      test: pg_isready -h db -U POSTGRES_USER -d POSTGRES_DB
+      # Интервал между проверками
+      interval: 3s
+      # Время на завершение проверки
+      timeout: 3s
+      # Количество неуспешных попыток проверки для "отказа"
+      retries: 3
+      # Ожидание перед началом проверок
+      start_period: 3s
+    #    ports:
+    #      - "5432:5432"  # Если нужно подключаться к базе данных с хоста (опционально)
+    # Подключаем к сети my_backend
+    networks:
+      - my_backend
+
+volumes:
+  # Объявляем том study_postgres_data для хранения данных PostgreSQL
+  study_postgres_data:
+
+networks:
+  my_backend:
+    driver: bridge
